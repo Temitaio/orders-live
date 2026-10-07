@@ -21,3 +21,8 @@ services:
       # Neon connection string, set in the Render dashboard
       - key: DATABASE_URL
         sync: false
+      # Simulation settings (change in the dashboard any time)
+      - key: SIM_RATE_PER_MIN
+        value: 20
+      - key: SCENARIO_ROTATION
+        value: true

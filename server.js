@@ -26,10 +26,16 @@ const NAMES = ['ada', 'grace', 'linus', 'margaret', 'alan', 'tim', 'radia', 'ken
 // Forward async errors to the Express error handler.
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+// Virtual multi-service simulation (api-gateway, auth, user, inventory, payment,
+// notification, shipping, search, recommendation). Disable with SIMULATE=false.
+const sim = process.env.SIMULATE !== 'false' ? require('./sim').create() : null;
+if (sim) app.use('/sim', sim.router);
+
 app.get('/', (req, res) =>
   res.json({
     app: 'orders-live',
     endpoints: ['/health', 'GET /orders', 'GET /orders/:id', 'POST /orders', '/report', '/slow', '/flaky', '/error'],
+    simulation: sim ? ['/sim/status', '/sim/scenarios', 'POST /sim/scenario/:name?minutes=5'] : 'disabled',
   })
 );
 
@@ -105,36 +111,6 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message });
 });
 
-// ---- Traffic simulator -------------------------------------------------
-// Calls this app's own public URL on a random cadence so events keep flowing.
-// Using RENDER_EXTERNAL_URL (set by Render) means requests arrive from outside,
-// which also keeps a free-tier instance from spinning down.
-function startSimulator(port) {
-  const base = process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}`;
-  const get = (p) => () => fetch(`${base}${p}`);
-  const calls = [
-    get('/health'), get('/health'),
-    get('/orders'), get('/orders'),
-    () => fetch(`${base}/orders/${rand(1, 200)}`),
-    () => fetch(`${base}/orders`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
-    () => fetch(`${base}/orders`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
-    get('/report'),
-    get('/slow'),
-    get('/flaky'), get('/flaky'),
-    get('/error'),
-  ];
-  const tick = async () => {
-    try {
-      await calls[rand(0, calls.length - 1)]();
-    } catch (e) {
-      console.log('[sim] request failed:', e.message);
-    }
-    setTimeout(tick, rand(1000, 4000));
-  };
-  console.log(`[sim] simulator running against ${base}`);
-  setTimeout(tick, 5000);
-}
-
 // Keep the table small (Neon free tier): retain only the latest ~1000 orders.
 function startCleanup() {
   setInterval(() => {
@@ -150,7 +126,9 @@ init()
     app.listen(port, () => {
       log('info', `orders-live listening on :${port}`);
       startCleanup();
-      if (process.env.SIMULATE !== 'false') startSimulator(port);
+      // Calls to orders-live go through the public URL on Render (counts as inbound traffic,
+      // which keeps a free-tier instance awake), or localhost when running locally.
+      if (sim) sim.start({ ordersBase: process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}` });
     });
   })
   .catch((e) => {

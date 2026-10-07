@@ -1,22 +1,27 @@
 {
   "name": "orders-live",
-  "version": "1.0.0",
-  "description": "Express + Neon Postgres test app, instrumented with OpenTelemetry for Monoscope, with a built-in traffic simulator",
+  "version": "2.0.0",
+  "description": "Express + Neon Postgres app plus a 10-service simulated shop, instrumented with OpenTelemetry for Monoscope",
   "main": "server.js",
   "engines": { "node": ">=20" },
   "scripts": {
-    "start": "node -r ./tracing.js server.js"
+    "start": "node -r ./tracing.js server.js",
+    "test": "node test/sim.test.js"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/api-logs": "^0.57.0",
     "@opentelemetry/auto-instrumentations-node": "^0.56.0",
+    "@opentelemetry/core": "^1.30.0",
     "@opentelemetry/exporter-logs-otlp-grpc": "^0.57.0",
     "@opentelemetry/exporter-metrics-otlp-grpc": "^0.57.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.57.0",
+    "@opentelemetry/resources": "^1.30.0",
     "@opentelemetry/sdk-logs": "^0.57.0",
     "@opentelemetry/sdk-metrics": "^1.30.0",
     "@opentelemetry/sdk-node": "^0.57.0",
+    "@opentelemetry/sdk-trace-base": "^1.30.0",
+    "@opentelemetry/sdk-trace-node": "^1.30.0",
     "express": "^4.21.0",
     "pg": "^8.13.0"
   }
