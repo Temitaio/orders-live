@@ -124,7 +124,11 @@
     <div class="card locked" id="s3">
       <h2><span class="step">3</span>See it in Monoscope</h2>
       <p class="meta" style="margin-top:0">Events usually show up within 10 to 30 seconds. Refresh the explorer if you do not see them.</p>
-      <div class="row"><a id="openMono" href="#" target="_blank" rel="noopener"><button class="primary" type="button">Open Monoscope</button></a></div>
+      <div class="row">
+        <a id="openMono" href="#" target="_blank" rel="noopener"><button class="primary" type="button">Open Monoscope</button></a>
+        <button id="openShop" type="button">Open demo storefront (session replay)</button>
+      </div>
+      <p class="meta">The storefront is a small shop. Click around in it, then find the session under Session Replay in Monoscope, linked to its backend traces.</p>
       <div id="live" class="meta"></div>
       <div id="health" class="msg hidden"></div>
     </div>
@@ -139,6 +143,7 @@
   try { pass = sessionStorage.getItem('pass') || ''; } catch (e) {}
   var timer = null;
   var busy = false;
+  var lastKey = '';
 
   // theme
   $('theme').onclick = function () {
@@ -229,7 +234,7 @@
     if (!key) { $('connErr').textContent = 'Paste your API key first.'; show('connErr', true); return; }
     var b = $('connect'); b.disabled = true; b.textContent = 'Connecting…';
     api('POST', '/api/connect', { apiKey: key }).then(function () {
-      $('key').value = ''; poll();
+      lastKey = key; $('key').value = ''; poll();
     }).catch(function (e) {
       if (e.message !== 'auth') { $('connErr').textContent = e.message; show('connErr', true); }
     }).then(function () { b.disabled = false; b.textContent = 'Connect'; });
@@ -251,6 +256,10 @@
   Array.prototype.forEach.call(document.querySelectorAll('button[data-a]'), function (b) {
     b.onclick = function () { act(b.dataset.a); };
   });
+  $('openShop').onclick = function () {
+    if (!lastKey) { window.open('/shop/', '_blank'); return; }
+    window.open('/shop/#k=' + encodeURIComponent(lastKey) + '&p=' + encodeURIComponent(pass), '_blank');
+  };
   $('stop').onclick = function () { act('stop'); };
 
   // boot

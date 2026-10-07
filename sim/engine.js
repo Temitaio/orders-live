@@ -1,6 +1,7 @@
 // Building blocks for simulated service-to-service calls. Every call produces a CLIENT
 // span in the caller and a SERVER span in the callee (as separate services) with the
 // trace context linked, plus logs and metrics from the callee.
+const { AsyncLocalStorage } = require('async_hooks');
 const { trace, context, propagation, ROOT_CONTEXT, SpanKind, SpanStatusCode } = require('@opentelemetry/api');
 const { suppressTracing } = require('@opentelemetry/core');
 const { SeverityNumber } = require('@opentelemetry/api-logs');
@@ -111,9 +112,14 @@ async function rpc(ctx, from, to, { method = 'GET', route, handler }) {
   }
 }
 
+// Lets a caller (the storefront API) make the next entry() a child of an incoming browser trace.
+const parentStore = new AsyncLocalStorage();
+const withParent = (parent, fn) => parentStore.run(parent, fn);
+
 // A trace's root: an inbound request to the api-gateway. Never throws.
 async function entry(S, method, route, handler) {
   const gw = S.gateway;
+  const parent = parentStore.getStore() || ROOT_CONTEXT;
   const span = gw.tracer.startSpan(
     `${method} ${route}`,
     {
@@ -127,9 +133,9 @@ async function entry(S, method, route, handler) {
         'client.address': `203.0.113.${rand(1, 254)}`,
       },
     },
-    ROOT_CONTEXT
+    parent
   );
-  const ctx = trace.setSpan(ROOT_CONTEXT, span);
+  const ctx = trace.setSpan(parent, span);
   const started = Date.now();
   let status = 200;
   try {
@@ -264,4 +270,4 @@ async function callOrders(ctx, from, method, path, route, body) {
   }
 }
 
-module.exports = { sleep, rand, SimError, configure, log, rpc, entry, work, db, external, callOrders };
+module.exports = { withParent, sleep, rand, SimError, configure, log, rpc, entry, work, db, external, callOrders };

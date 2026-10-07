@@ -124,14 +124,16 @@ app.get('/api/info', (req, res) =>
 const wantedPass = PASSCODE ? sha(PASSCODE) : null;
 let failures = 0;
 setInterval(() => (failures = Math.max(0, failures - 5)), 60000).unref();
-app.use('/api', (req, res, next) => {
+const guard = (req, res, next) => {
   if (!wantedPass) return next();
   if (failures > 20) return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
   const given = sha(req.get('x-passcode') || '');
   if (crypto.timingSafeEqual(given, wantedPass)) return next();
   failures++;
   res.status(401).json({ error: 'Wrong or missing passcode.' });
-});
+};
+app.use('/api', guard);
+app.use('/shop-api', guard);
 
 app.get('/api/check', (req, res) => res.json({ ok: true })); // used by the UI to validate the passcode
 
@@ -231,6 +233,78 @@ app.get('/api/scenarios', async (req, res) => {
   } catch {
     res.json([]);
   }
+});
+
+
+// ---- Demo storefront (public/shop) ------------------------------------------
+// The page runs Monoscope's browser SDK (session replay + tracing) with the key the visitor
+// supplies. Its same-origin calls carry a W3C traceparent that we forward to the app, so a click
+// in the browser links to the backend trace.
+const SDK_FILE = path.join(__dirname, 'node_modules/@monoscopetech/browser/dist/monoscope.min.js');
+app.get('/vendor/monoscope.min.js', (req, res) => res.sendFile(SDK_FILE));
+
+const PRODUCTS = [
+  { id: 'p1', name: 'Trail Backpack', price: 8900, color: '#4f46e5' },
+  { id: 'p2', name: 'Insulated Bottle', price: 3200, color: '#0891b2' },
+  { id: 'p3', name: 'Merino Socks', price: 1800, color: '#be185d' },
+  { id: 'p4', name: 'Headlamp', price: 4500, color: '#b45309' },
+  { id: 'p5', name: 'Camp Stove', price: 6700, color: '#15803d' },
+  { id: 'p6', name: 'Rain Shell', price: 12900, color: '#7c3aed' },
+];
+app.get('/shop-api/products', (req, res) => res.json(PRODUCTS));
+
+async function shopRun(req, res, journey, done) {
+  if (!session || !child || child.exited || child.kind !== 'session') {
+    return res.status(409).json({ error: 'The demo is not connected. Connect your key in the Demo Console first.' });
+  }
+  session.lastActivity = Date.now();
+  const headers = {};
+  for (const h of ['traceparent', 'tracestate', 'baggage']) if (req.get(h)) headers[h] = req.get(h);
+  try {
+    const r = await fetch(`${CHILD}/sim/run/${journey}`, { method: 'POST', headers, signal: AbortSignal.timeout(30000) });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(502).json({ error: body.error || 'The demo app failed.' });
+    return done(body.status || 200, body);
+  } catch (e) {
+    return res.status(504).json({ error: 'The demo app did not answer in time.' });
+  }
+}
+
+app.get('/shop-api/search', (req, res) =>
+  shopRun(req, res, 'browse', (status, b) => res.status(status).json({ ok: status < 400, status, traceId: b.traceId }))
+);
+app.post('/shop-api/login', (req, res) =>
+  shopRun(req, res, 'login', (status, b) =>
+    res.status(status).json({ ok: status < 400, status, error: status >= 400 ? 'Sign in failed. Try again.' : undefined, traceId: b.traceId })
+  )
+);
+app.get('/shop-api/orders/status', (req, res) =>
+  shopRun(req, res, 'orderStatus', (status, b) => res.status(status).json({ ok: status < 400, status, traceId: b.traceId }))
+);
+app.post('/shop-api/checkout', (req, res) =>
+  shopRun(req, res, 'checkout', (status, b) =>
+    res.status(status).json({
+      ok: status < 400,
+      status,
+      error: status >= 400 ? 'Payment could not be processed. Please try again.' : undefined,
+      orderRef: status < 400 ? `ORD-${crypto.randomBytes(3).toString('hex').toUpperCase()}` : undefined,
+      traceId: b.traceId,
+    })
+  )
+);
+// SAVE10 works, BROKEN triggers a real backend error, anything else is a plain 404.
+app.post('/shop-api/promo', (req, res) => {
+  const code = String(req.body?.code || '').trim().toUpperCase();
+  if (code === 'SAVE10') {
+    if (session) session.lastActivity = Date.now();
+    return res.json({ ok: true, percent: 10 });
+  }
+  if (code === 'BROKEN') {
+    return shopRun(req, res, 'diagError', (status, b) =>
+      res.status(status >= 400 ? status : 500).json({ ok: false, error: 'The promo service is having trouble right now.', traceId: b.traceId })
+    );
+  }
+  res.status(404).json({ ok: false, error: 'That code is not valid.' });
 });
 
 app.use(express.static(path.join(__dirname, 'public')));

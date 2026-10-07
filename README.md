@@ -11,6 +11,9 @@ An OpenTelemetry-instrumented demo shop (10 services, Postgres on Neon) with a b
 
 The status line shows whether Monoscope's collector accepted the data. It proves the collector took the batches, not that the key belongs to the project you are viewing.
 
+## Demo storefront and session replay
+After connecting, click **Open demo storefront** in the console. `/shop/` is a small shop (search, cart, promo codes, checkout, sign in) that runs Monoscope's browser SDK (`@monoscopetech/browser`) with the same key: session replay, user-interaction and fetch tracing, errors and web vitals. Its API calls are same-origin, so the SDK's `traceparent` header is forwarded to the app and the backend spans join the browser's trace. Promo `SAVE10` works; `BROKEN` triggers a real backend error. The key reaches the page through the URL fragment (never sent to the server) and is kept in that tab's sessionStorage. The storefront only works while a console session is connected.
+
 ## Modes (`DEMO_MODE`)
 | Mode | Behavior | Neon / Render cost |
 |---|---|---|

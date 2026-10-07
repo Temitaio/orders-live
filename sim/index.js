@@ -1,5 +1,5 @@
 const express = require('express');
-const { ROOT_CONTEXT } = require('@opentelemetry/api');
+const { ROOT_CONTEXT, context, trace } = require('@opentelemetry/api');
 const telemetry = require('./telemetry');
 const scenarios = require('./scenarios');
 const engine = require('./engine');
@@ -29,6 +29,7 @@ function create(opts = {}) {
   let announceTimer = null;
   let burstTimer = null;
   let burstFirstTimer = null;
+  let idleTimer = null;
   const traffic = { running: false, until: 0, rate: 0 };
   let nextRotate = 0;
 
@@ -189,6 +190,26 @@ function create(opts = {}) {
   router.post('/traffic/stop', (req, res) => {
     stopTraffic();
     res.json({ running: false });
+  });
+  // Runs one journey and waits for it (used by the storefront). If the request carried a
+  // browser trace, the journey's gateway span becomes a child of the active request span.
+  router.post('/run/:name', async (req, res) => {
+    const j = journeys.journeys[req.params.name];
+    if (!j) return res.status(404).json({ error: `unknown journey: ${req.params.name}`, available: journeys.names });
+    if (inflight >= 60) return res.status(429).json({ error: 'busy' });
+    inflight++;
+    sent++;
+    try {
+      const parent = trace.getActiveSpan() ? context.active() : ROOT_CONTEXT;
+      const status = await engine.withParent(parent, () => j.run(S));
+      const traceId = trace.getActiveSpan()?.spanContext().traceId || null;
+      res.json({ status, traceId });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    } finally {
+      inflight--;
+      if (onIdle) { clearTimeout(idleTimer); idleTimer = setTimeout(() => onIdle(), 8000); }
+    }
   });
   router.post('/journey/:name', (req, res) => {
     try {
