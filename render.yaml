@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: orders-live
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: OTEL_SERVICE_NAME
+        value: orders-live
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: http://otelcol.monoscope.tech:4317
+      - key: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: grpc
+      # Set in the Render dashboard, e.g.: x-api-key=YOUR_KEY,deployment.environment=production
+      - key: OTEL_RESOURCE_ATTRIBUTES
+        sync: false
+      # Neon connection string, set in the Render dashboard
+      - key: DATABASE_URL
+        sync: false
