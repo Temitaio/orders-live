@@ -39,6 +39,17 @@ const stub = http.createServer((req, res) => {
   const realSetTimeout = global.setTimeout;
   global.setTimeout = (fn, ms, ...a) => realSetTimeout(fn, Math.min(ms, 2), ...a);
 
+  // Traffic controls: startTraffic / stopTraffic / runNow
+  const idle = [];
+  sim.start({ ordersBase: `http://127.0.0.1:${stub.address().port}`, onIdle: () => idle.push(1) });
+  assert.deepStrictEqual(sim.runNow('browse', 3), { started: 3 });
+  sim.startTraffic(0.5, 60);
+  await new Promise((r) => realSetTimeout(r, 1500));
+  sim.stopTraffic();
+  assert(sim.counters().sent >= 3, 'runNow/startTraffic should launch journeys');
+  assert.throws(() => sim.runNow('nope'), /unknown journey/);
+  sim.stop();
+
   const names = require('../sim/journeys').names;
   for (const n of names) for (let i = 0; i < 15; i++) await sim.runJourney(n);
 
@@ -86,6 +97,10 @@ const stub = http.createServer((req, res) => {
 
   await sim.flush();
   assert(metricsExp.getMetrics().length > 0, 'expected metrics');
+  const tel = require('../telemetry-stats').snapshot();
+  console.log(`export stats: traces ok=${tel.traces.ok} failed=${tel.traces.failed}, logs ok=${tel.logs.ok}, metrics ok=${tel.metrics.ok}`);
+  assert(tel.traces.ok > 0 && tel.traces.failed === 0, 'trace export results should be counted as ok');
+  assert(tel.logs.ok > 0, 'log export results should be counted');
   console.log('OK');
   global.setTimeout = realSetTimeout;
   sim.stop();

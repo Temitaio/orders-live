@@ -12,16 +12,32 @@ const pool = new Pool({
   idleTimeoutMillis: 30000,
 });
 
-async function init() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS orders (
-      id          SERIAL PRIMARY KEY,
-      customer    TEXT        NOT NULL,
-      total_cents INTEGER     NOT NULL,
-      status      TEXT        NOT NULL DEFAULT 'pending',
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
+// The schema is created lazily on the first real query, so starting the app (or waking
+// the host) never touches the database. This lets Neon's compute suspend when idle.
+let schemaPromise = null;
+function ensureSchema() {
+  if (!schemaPromise) {
+    schemaPromise = pool
+      .query(`
+        CREATE TABLE IF NOT EXISTS orders (
+          id          SERIAL PRIMARY KEY,
+          customer    TEXT        NOT NULL,
+          total_cents INTEGER     NOT NULL,
+          status      TEXT        NOT NULL DEFAULT 'pending',
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `)
+      .catch((e) => {
+        schemaPromise = null;
+        throw e;
+      });
+  }
+  return schemaPromise;
 }
 
-module.exports = { pool, init };
+async function query(text, params) {
+  await ensureSchema();
+  return pool.query(text, params);
+}
+
+module.exports = { pool, query, ensureSchema };

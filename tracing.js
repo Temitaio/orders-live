@@ -7,14 +7,15 @@ const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-grp
 const { OTLPLogExporter } = require('@opentelemetry/exporter-logs-otlp-grpc');
 const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
 const { BatchLogRecordProcessor } = require('@opentelemetry/sdk-logs');
+const { wrap } = require('./telemetry-stats');
 
 const sdk = new NodeSDK({
-  traceExporter: new OTLPTraceExporter(),
+  traceExporter: wrap(new OTLPTraceExporter(), 'traces'),
   metricReader: new PeriodicExportingMetricReader({
-    exporter: new OTLPMetricExporter(),
+    exporter: wrap(new OTLPMetricExporter(), 'metrics'),
     exportIntervalMillis: 15000,
   }),
-  logRecordProcessors: [new BatchLogRecordProcessor(new OTLPLogExporter())],
+  logRecordProcessors: [new BatchLogRecordProcessor(wrap(new OTLPLogExporter(), 'logs'))],
   instrumentations: [
     getNodeAutoInstrumentations({
       '@opentelemetry/instrumentation-fs': { enabled: false }, // noisy

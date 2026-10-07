@@ -1,91 +1,39 @@
-# orders-live
+# orders-live: Monoscope Demo Console
 
-A small "shop" for testing Monoscope end to end: one real app (Express + Neon Postgres) plus nine simulated services that call each other and the real app, all instrumented with OpenTelemetry (traces, logs, metrics over gRPC).
+An OpenTelemetry-instrumented demo shop (10 services, Postgres on Neon) with a browser **Demo Console** so anyone can show Monoscope end to end without a terminal.
 
-## Services (10 in Monoscope)
+## Using the console (non-technical)
+1. Open the app URL. If a passcode is set, enter it. (Free hosting sleeps: open the link ~5 minutes before a demo.)
+2. In Monoscope, copy your project's **API key**, paste it in step 1, click **Connect**.
+3. Click buttons in step 2 (traffic, errors, slow requests, incidents).
+4. Click **Open Monoscope** and watch events arrive.
+5. **Disconnect** when done (the key is forgotten; idle sessions end after 10 minutes).
 
-| Service | Role |
-|---|---|
-| `orders-live` | The real Express app with real Neon Postgres spans |
-| `api-gateway` | Entry point; roots every trace |
-| `auth-service` | Session verify / login (Redis + Postgres spans) |
-| `user-service` | Profiles (Postgres) |
-| `inventory-service` | Stock reservation (Postgres, row locks) |
-| `payment-service` | Charges via a Stripe-style external call, with retries |
-| `notification-service` | Emails via an external SMTP call |
-| `shipping-service` | Labels and tracking (Postgres) |
-| `search-service` | Product search (Elasticsearch spans) |
-| `recommendation-service` | Recommendations (feature store, ML predict, calls inventory) |
+The status line shows whether Monoscope's collector accepted the data. It proves the collector took the batches, not that the key belongs to the project you are viewing.
 
-The nine virtual services run inside the same Node process. Each has its own tracer, logger and meter with its own `service.name`, so Monoscope treats them as separate services, with trace context passed between them. Calls from the gateway to `orders-live` are real HTTP requests that carry `traceparent`, so real Postgres spans appear inside the same traces.
-
-## Journeys (traces)
-
-`checkout` (auth, user, inventory, payment with retry, real `POST /orders`, then shipping and notification in parallel), `browse` (search, recommendations, inventory), `login`, `orderStatus` (real `GET /orders/:id`), `adminReport` (real `/report`), and diagnostics through the gateway to the real `/slow`, `/flaky` and `/error`.
-
-## Scenarios (incidents)
-
-The simulator rotates through these automatically (normal for ~3-5 minutes, then a random incident for 3-6 minutes). Set `SCENARIO_ROTATION=false` to stop that and trigger them yourself.
-
-| Scenario | What happens |
-|---|---|
-| `normal` | Baseline noise only |
-| `payment_outage` | payment-service errors ~80% and slow; checkout retries |
-| `slow_inventory` | inventory-service 10x slower; latency cascades |
-| `auth_degraded` | auth-service 30% errors, 4x latency |
-| `notification_down` | emails fail (warnings; checkouts still succeed) |
-| `search_degraded` | search 8x slower with 10% gateway timeouts |
-| `shipping_rate_limited` | 40% HTTP 429 from shipping |
-| `black_friday` | 4x traffic, slower everywhere, extra errors |
-
-Control endpoints (on your Render URL):
-
-```bash
-curl https://YOUR-APP.onrender.com/sim/status
-curl https://YOUR-APP.onrender.com/sim/scenarios
-curl -X POST "https://YOUR-APP.onrender.com/sim/scenario/payment_outage?minutes=5"
-curl -X POST "https://YOUR-APP.onrender.com/sim/scenario/normal"
-```
-
-If you set `SIM_ADMIN_TOKEN` in Render, add `-H "x-admin-token: YOUR_TOKEN"` to the POST calls. Start and end of each scenario is also logged by `api-gateway` (search logs for `scenario`).
-
-## Configuration (environment variables)
-
-| Variable | Default | Meaning |
+## Modes (`DEMO_MODE`)
+| Mode | Behavior | Neon / Render cost |
 |---|---|---|
-| `DATABASE_URL` | required | Neon connection string |
-| `OTEL_RESOURCE_ATTRIBUTES` | required | `x-api-key=YOUR_KEY,deployment.environment=production` (one line) |
-| `SIMULATE` | `true` | `false` turns off all virtual services |
-| `SIM_RATE_PER_MIN` | `20` | Journeys per minute (each is ~8-20 spans) |
-| `SCENARIO_ROTATION` | `true` | Auto-rotate incidents |
-| `SIM_ADMIN_TOKEN` | unset | Protects `POST /sim/scenario/*` |
-| `SIM_VERBOSE` | `false` | Print virtual-service logs to the console |
+| `console` | Nothing runs until someone connects a key. | Lowest. Service can sleep. |
+| `burst` (default in render.yaml) | One ~60 s burst every `SIM_BURST_EVERY_MINUTES` (15) using the key in `OTEL_RESOURCE_ATTRIBUTES`. About 30% of bursts include an incident. | Neon is active roughly 40% of the time. |
+| `continuous` | Steady traffic plus rotating incidents. | Exhausts Neon free compute. Avoid. |
 
-## Deploy updates
+A console connection temporarily replaces the baseline, then restores it on disconnect.
 
-Render redeploys automatically on every push to `main`:
+## Free-tier math
+- **Neon** free: 100 CU-hours/month. Each burst keeps compute awake about 6 minutes (60 s of traffic plus the 5-minute idle suspend), so a 15-minute interval is active ~40% of the time. At 0.25 CU that is about 74 CU-hours/month. Check the Neon usage page; use 20 to 30 minutes for margin. Health checks (`/health`) never query the database, and the schema is created lazily.
+- **Render** free: 750 instance-hours/month. Burst mode keeps the service awake (self-ping every 10 min), about 744 hours for one service. Use `console` mode if you also run other free services.
 
-```bash
-git add -A && git commit -m "Add simulated services" && git push
-```
+## Settings
+`DATABASE_URL` (required), `DEMO_MODE`, `OTEL_RESOURCE_ATTRIBUTES` (`x-api-key=KEY,deployment.environment=production`, needed for burst/continuous), `DEMO_PASSCODE` (optional), `SIM_BURST_EVERY_MINUTES`, `SIM_BURST_JOURNEYS`, `SIM_BURST_SECONDS`, `SIM_IDLE_MINUTES` (10), `SESSION_MAX_MINUTES` (120), `MONOSCOPE_URL`.
+Collector: `http://otelcol.monoscope.tech:4317` over gRPC; the key travels as the `x-api-key` resource attribute.
 
 ## Run locally
-
-```bash
-npm install
-cp .env.example .env     # fill in DATABASE_URL and your Monoscope key
-set -a; source .env; set +a
-npm start
-npm test                 # in-memory check of the simulation, no keys needed
 ```
-
-## What to look for in Monoscope
-
-The service map with 10 nodes, traces spanning 5-8 services, per-service latency and error rates, retries in checkout traces, logs correlated to traces, and a visible shift in the charts whenever a scenario starts.
-
-## Notes
-
-- Free Render instances sleep after ~15 minutes without inbound traffic. Calls to `orders-live` go through the public URL, which keeps it awake. If it still sleeps, ping `/health` from an uptime monitor.
-- Raising `SIM_RATE_PER_MIN` raises your Monoscope event volume. At the default of 20, expect roughly 200-400 spans per minute.
-- The table keeps only the latest ~1000 orders.
-- If you get a `channel_binding` error from Neon, remove `&channel_binding=require` from the connection string.
+cp .env.example .env   # fill in, keep the quotes
+npm install
+set -a; source .env; set +a
+npm start        # Demo Console on http://localhost:3000
+npm run app      # just the instrumented app, no console
+npm test         # in-memory telemetry checks, no network needed
+```

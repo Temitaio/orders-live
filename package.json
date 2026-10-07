@@ -1,11 +1,14 @@
 {
   "name": "orders-live",
-  "version": "2.0.0",
-  "description": "Express + Neon Postgres app plus a 10-service simulated shop, instrumented with OpenTelemetry for Monoscope",
+  "version": "3.0.0",
+  "description": "Monoscope Demo Console plus an Express + Neon Postgres app and a 10-service simulated shop, instrumented with OpenTelemetry",
   "main": "server.js",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "start": "node -r ./tracing.js server.js",
+    "start": "node launcher.js",
+    "app": "node -r ./tracing.js server.js",
     "test": "node test/sim.test.js"
   },
   "dependencies": {

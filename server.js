@@ -1,7 +1,10 @@
+// The instrumented app ("child"). In production it is started by launcher.js, which
+// serves the Demo Console and passes in the Monoscope API key. It can also run on its
+// own for local work: `npm run app`.
 const express = require('express');
 const { trace, metrics, SpanStatusCode } = require('@opentelemetry/api');
 const { logs, SeverityNumber } = require('@opentelemetry/api-logs');
-const { pool, init } = require('./db');
+const { query: q } = require('./db');
 
 const app = express();
 app.use(express.json());
@@ -34,24 +37,27 @@ if (sim) app.use('/sim', sim.router);
 app.get('/', (req, res) =>
   res.json({
     app: 'orders-live',
-    endpoints: ['/health', 'GET /orders', 'GET /orders/:id', 'POST /orders', '/report', '/slow', '/flaky', '/error'],
-    simulation: sim ? ['/sim/status', '/sim/scenarios', 'POST /sim/scenario/:name?minutes=5'] : 'disabled',
+    endpoints: ['/health', '/health/db', 'GET /orders', 'GET /orders/:id', 'POST /orders', '/report', '/slow', '/flaky', '/error'],
+    simulation: sim ? ['/sim/status', '/sim/scenarios', '/sim/telemetry'] : 'disabled',
   })
 );
 
-app.get('/health', wrap(async (req, res) => {
-  await pool.query('SELECT 1');
-  res.json({ status: 'ok' });
+// Liveness only: never touches the database, so health checks cannot keep Neon awake.
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+app.get('/health/db', wrap(async (req, res) => {
+  await q('SELECT 1');
+  res.json({ status: 'ok', db: 'ok' });
 }));
 
 app.get('/orders', wrap(async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM orders ORDER BY id DESC LIMIT 20');
+  const { rows } = await q('SELECT * FROM orders ORDER BY id DESC LIMIT 20');
   res.json(rows);
 }));
 
 app.get('/orders/:id', wrap(async (req, res) => {
   const id = Number(req.params.id);
-  const { rows } = await pool.query('SELECT * FROM orders WHERE id = $1', [id]);
+  const { rows } = await q('SELECT * FROM orders WHERE id = $1', [id]);
   if (!rows.length) {
     log('warn', 'order not found', { 'order.id': id });
     return res.status(404).json({ error: 'not found' });
@@ -62,7 +68,7 @@ app.get('/orders/:id', wrap(async (req, res) => {
 app.post('/orders', wrap(async (req, res) => {
   const customer = req.body?.customer ?? NAMES[rand(0, NAMES.length - 1)];
   const total = req.body?.total_cents ?? rand(1000, 50000);
-  const { rows } = await pool.query(
+  const { rows } = await q(
     'INSERT INTO orders (customer, total_cents, status) VALUES ($1, $2, $3) RETURNING *',
     [customer, total, STATUSES[rand(0, 2)]]
   );
@@ -74,7 +80,7 @@ app.post('/orders', wrap(async (req, res) => {
 
 // Aggregate query: a heavier DB span.
 app.get('/report', wrap(async (req, res) => {
-  const { rows } = await pool.query(
+  const { rows } = await q(
     'SELECT status, count(*)::int AS orders, coalesce(sum(total_cents),0)::int AS revenue_cents FROM orders GROUP BY status ORDER BY status'
   );
   res.json(rows);
@@ -84,18 +90,18 @@ app.get('/report', wrap(async (req, res) => {
 app.get('/slow', wrap(async (req, res) => {
   const secs = rand(200, 3000) / 1000;
   log('warn', 'slow query', { 'delay.seconds': secs });
-  await pool.query('SELECT pg_sleep($1::float8)', [secs]);
+  await q('SELECT pg_sleep($1::float8)', [secs]);
   res.json({ slept_seconds: secs });
 }));
 
 // A genuine database error (relation does not exist).
 app.get('/error', wrap(async () => {
-  await pool.query('SELECT * FROM table_that_does_not_exist');
+  await q('SELECT * FROM table_that_does_not_exist');
 }));
 
 // ~30% failures from a "flaky dependency".
 app.get('/flaky', wrap(async (req, res) => {
-  await pool.query('SELECT 1');
+  await q('SELECT 1');
   if (Math.random() < 0.3) throw new Error('Flaky dependency timed out');
   res.json({ ok: true });
 }));
@@ -111,27 +117,16 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message });
 });
 
-// Keep the table small (Neon free tier): retain only the latest ~1000 orders.
-function startCleanup() {
-  setInterval(() => {
-    pool
-      .query('DELETE FROM orders WHERE id < (SELECT coalesce(max(id),0) - 1000 FROM orders)')
-      .catch((e) => console.log('[cleanup] failed:', e.message));
-  }, 5 * 60 * 1000);
-}
+// Keep the table small (Neon free tier). Runs when simulated traffic stops, never on a timer,
+// so it does not keep the database awake.
+const cleanupOrders = () =>
+  q('DELETE FROM orders WHERE id < (SELECT coalesce(max(id),0) - 1000 FROM orders)').catch((e) =>
+    console.log('[cleanup] failed:', e.message)
+  );
 
 const port = process.env.PORT || 3000;
-init()
-  .then(() => {
-    app.listen(port, () => {
-      log('info', `orders-live listening on :${port}`);
-      startCleanup();
-      // Calls to orders-live go through the public URL on Render (counts as inbound traffic,
-      // which keeps a free-tier instance awake), or localhost when running locally.
-      if (sim) sim.start({ ordersBase: process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}` });
-    });
-  })
-  .catch((e) => {
-    console.error('Database init failed:', e.message);
-    process.exit(1);
-  });
+const host = process.env.BIND_HOST || '0.0.0.0';
+app.listen(port, host, () => {
+  log('info', `orders-live listening on ${host}:${port}`);
+  if (sim) sim.start({ ordersBase: `http://127.0.0.1:${port}`, onIdle: cleanupOrders });
+});

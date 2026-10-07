@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
-    healthCheckPath: /health
+    healthCheckPath: /health   # never touches the database
     envVars:
       - key: NODE_VERSION
         value: 20
@@ -15,14 +15,23 @@ services:
         value: http://otelcol.monoscope.tech:4317
       - key: OTEL_EXPORTER_OTLP_PROTOCOL
         value: grpc
-      # Set in the Render dashboard, e.g.: x-api-key=YOUR_KEY,deployment.environment=production
-      - key: OTEL_RESOURCE_ATTRIBUTES
-        sync: false
       # Neon connection string, set in the Render dashboard
       - key: DATABASE_URL
         sync: false
-      # Simulation settings (change in the dashboard any time)
-      - key: SIM_RATE_PER_MIN
-        value: 20
-      - key: SCENARIO_ROTATION
-        value: true
+      # console = nothing runs until someone connects a key in the Demo Console (service can sleep)
+      # burst   = also run one short burst every SIM_BURST_EVERY_MINUTES using the key below
+      # continuous = steady traffic (will exhaust Neon's free compute)
+      - key: DEMO_MODE
+        value: burst
+      # Only needed for burst/continuous. e.g. x-api-key=YOUR_KEY,deployment.environment=production
+      - key: OTEL_RESOURCE_ATTRIBUTES
+        sync: false
+      - key: SIM_BURST_EVERY_MINUTES
+        value: 15
+      - key: SIM_BURST_JOURNEYS
+        value: 15
+      - key: SIM_BURST_SECONDS
+        value: 60
+      # Optional: require a passcode to use the console
+      - key: DEMO_PASSCODE
+        sync: false

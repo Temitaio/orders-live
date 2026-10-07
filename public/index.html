@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monoscope Demo Console</title>
+<style>
+  :root {
+    --bg:#f6f7f9; --card:#fff; --text:#16181d; --muted:#5d6573; --line:#e1e4ea;
+    --accent:#4f46e5; --accent-text:#fff; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; --okbg:#e8f6ec; --badbg:#fdecec; --warnbg:#fdf3e3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#0f1115; --card:#181b21; --text:#eceef2; --muted:#9aa3b2; --line:#2a2f38;
+      --accent:#818cf8; --accent-text:#10121a; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --okbg:#12261a; --badbg:#2b1616; --warnbg:#2a2111;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#0f1115; --card:#181b21; --text:#eceef2; --muted:#9aa3b2; --line:#2a2f38;
+    --accent:#818cf8; --accent-text:#10121a; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --okbg:#12261a; --badbg:#2b1616; --warnbg:#2a2111;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:1.5rem; margin:0 0 4px; }
+  h2 { font-size:1.05rem; margin:0 0 4px; }
+  p { margin:0 0 12px; }
+  .sub { color:var(--muted); margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:16px; }
+  .card.locked { opacity:.5; pointer-events:none; }
+  .step { display:inline-block; width:24px; height:24px; line-height:24px; text-align:center; border-radius:50%; background:var(--accent); color:var(--accent-text); font-size:.85rem; font-weight:600; margin-right:8px; }
+  input[type=password], input[type=text] { width:100%; padding:11px 12px; font:inherit; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); }
+  button { font:inherit; cursor:pointer; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); padding:10px 14px; }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:default; }
+  button.primary { background:var(--accent); color:var(--accent-text); border-color:var(--accent); font-weight:600; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  .row > input { flex:1 1 220px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }
+  .grid button { text-align:left; }
+  .grid small { display:block; color:var(--muted); font-size:.8rem; }
+  .group { margin-top:16px; }
+  .group h3 { font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 8px; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:.85rem; font-weight:600; }
+  .pill.ok { background:var(--okbg); color:var(--ok); }
+  .pill.bad { background:var(--badbg); color:var(--bad); }
+  .pill.warn { background:var(--warnbg); color:var(--warn); }
+  .msg { padding:10px 12px; border-radius:8px; margin-top:12px; font-size:.95rem; }
+  .msg.bad { background:var(--badbg); color:var(--bad); }
+  .msg.warn { background:var(--warnbg); color:var(--warn); }
+  .msg.ok { background:var(--okbg); color:var(--ok); }
+  .meta { color:var(--muted); font-size:.9rem; margin-top:10px; }
+  .top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+  a { color:var(--accent); }
+  .hidden { display:none !important; }
+  .toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:var(--text); color:var(--bg); padding:10px 16px; border-radius:8px; font-size:.9rem; max-width:90vw; }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <h1>Monoscope Demo Console</h1>
+    <button id="theme" aria-label="Toggle theme">◐</button>
+  </div>
+  <p class="sub">Connect a Monoscope project, trigger realistic events, and watch them arrive. No terminal needed.</p>
+
+  <div id="gate" class="card hidden">
+    <h2>Enter the team passcode</h2>
+    <p class="meta" style="margin-top:0">Ask the person who shared this link.</p>
+    <div class="row">
+      <input id="pass" type="password" placeholder="Passcode" autocomplete="off">
+      <button class="primary" id="passBtn">Continue</button>
+    </div>
+    <div id="passErr" class="msg bad hidden"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="card" id="s1">
+      <h2><span class="step">1</span>Connect your Monoscope project</h2>
+      <p class="meta" style="margin-top:0">In Monoscope, open your project, go to its settings and copy the <b>API key</b>. Paste it here. It is kept in memory only and forgotten when you disconnect.</p>
+      <div id="connectForm" class="row">
+        <input id="key" type="password" placeholder="Paste API key" autocomplete="off" spellcheck="false">
+        <button class="primary" id="connect">Connect</button>
+      </div>
+      <div id="connected" class="hidden">
+        <span class="pill ok">Connected</span>
+        <span class="meta" id="sessionInfo"></span>
+        <div class="row" style="margin-top:12px"><button id="disconnect">Disconnect</button></div>
+      </div>
+      <div id="connErr" class="msg bad hidden"></div>
+    </div>
+
+    <div class="card locked" id="s2">
+      <h2><span class="step">2</span>Trigger some events</h2>
+      <div class="group">
+        <h3>Everyday traffic</h3>
+        <div class="grid">
+          <button data-a="traffic">Start traffic<small>About 2 minutes of mixed activity</small></button>
+          <button data-a="checkout">Place 5 orders<small>Follows a checkout across services</small></button>
+        </div>
+      </div>
+      <div class="group">
+        <h3>Problems</h3>
+        <div class="grid">
+          <button data-a="error">Cause errors<small>Failed requests and exceptions</small></button>
+          <button data-a="slow">Slow requests<small>Database latency spikes</small></button>
+        </div>
+      </div>
+      <div class="group">
+        <h3>Incidents (5 minutes)</h3>
+        <div class="grid">
+          <button data-a="scenario:payment_outage">Payment outage<small>Payments fail, checkouts break</small></button>
+          <button data-a="scenario:slow_inventory">Slow inventory<small>Latency builds up</small></button>
+          <button data-a="scenario:auth_degraded">Login trouble<small>Auth errors and timeouts</small></button>
+          <button data-a="scenario:notification_down">Notifications down<small>Emails and pushes fail</small></button>
+          <button data-a="scenario:search_degraded">Search degraded<small>Search is slow and flaky</small></button>
+          <button data-a="scenario:shipping_rate_limited">Shipping rate limited<small>429s from a carrier</small></button>
+          <button data-a="scenario:black_friday">Black Friday<small>4x traffic surge</small></button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:16px"><button id="stop">Stop everything</button></div>
+    </div>
+
+    <div class="card locked" id="s3">
+      <h2><span class="step">3</span>See it in Monoscope</h2>
+      <p class="meta" style="margin-top:0">Events usually show up within 10 to 30 seconds. Refresh the explorer if you do not see them.</p>
+      <div class="row"><a id="openMono" href="#" target="_blank" rel="noopener"><button class="primary" type="button">Open Monoscope</button></a></div>
+      <div id="live" class="meta"></div>
+      <div id="health" class="msg hidden"></div>
+    </div>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var pass = '';
+  try { pass = sessionStorage.getItem('pass') || ''; } catch (e) {}
+  var timer = null;
+  var busy = false;
+
+  // theme
+  $('theme').onclick = function () {
+    var r = document.documentElement;
+    var dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    r.dataset.theme = dark ? 'light' : 'dark';
+  };
+
+  function api(method, path, body) {
+    return fetch(path, {
+      method: method,
+      headers: { 'content-type': 'application/json', 'x-passcode': pass },
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (r.status === 401) { showGate('Wrong or missing passcode.'); throw new Error('auth'); }
+        if (!r.ok) throw new Error(j.error || 'Something went wrong.');
+        return j;
+      });
+    });
+  }
+
+  function toast(t) {
+    var el = $('toast'); el.textContent = t; el.classList.remove('hidden');
+    clearTimeout(toast.t); toast.t = setTimeout(function () { el.classList.add('hidden'); }, 2500);
+  }
+  function show(id, on) { $(id).classList.toggle('hidden', !on); }
+
+  function showGate(err) {
+    show('gate', true); show('app', false);
+    clearInterval(timer); timer = null;
+    $('passErr').textContent = err || ''; show('passErr', !!err);
+  }
+  function showApp() { show('gate', false); show('app', true); poll(); if (!timer) timer = setInterval(poll, 2000); }
+
+  $('passBtn').onclick = function () {
+    pass = $('pass').value;
+    api('GET', '/api/check').then(function () {
+      try { sessionStorage.setItem('pass', pass); } catch (e) {}
+      showApp();
+    }).catch(function () {});
+  };
+  $('pass').onkeydown = function (e) { if (e.key === 'Enter') $('passBtn').click(); };
+
+  function mins(s) { var m = Math.ceil(s / 60); return m + ' min'; }
+
+  // Translate collector errors into plain language.
+  function explain(tel) {
+    if (!tel) return null;
+    var t = tel.traces || {};
+    if (t.failed > 0 && (!t.ok || t.lastFailAt > t.lastOkAt)) {
+      var e = String(t.lastError || '');
+      if (/UNAUTHENTICATED|PERMISSION_DENIED|401|403/i.test(e)) return { cls: 'bad', text: 'Monoscope rejected this key. Copy the API key again from your project settings and reconnect.' };
+      if (/UNAVAILABLE|ECONNREFUSED|ENOTFOUND|DEADLINE|timeout/i.test(e)) return { cls: 'warn', text: 'Cannot reach Monoscope right now. Retrying automatically.' };
+      return { cls: 'bad', text: 'Monoscope did not accept the data' + (e ? ' (' + e.slice(0, 120) + ')' : '') + '.' };
+    }
+    if (t.ok > 0) return { cls: 'ok', text: 'Monoscope is accepting data (' + t.items + ' spans sent). If nothing appears, double check the key belongs to the project you are viewing.' };
+    return null;
+  }
+
+  function render(s) {
+    var c = !!s.connected;
+    show('connectForm', !c); show('connected', c);
+    $('s2').classList.toggle('locked', !c); $('s3').classList.toggle('locked', !c);
+    $('openMono').href = s.monoscopeUrl || '#';
+    if (!c) { show('health', false); $('live').textContent = ''; return; }
+    var se = s.session || {};
+    $('sessionInfo').textContent = 'Key ' + (se.key || '') + '. Ends after ' + mins(Math.min(se.idleSecondsLeft || 0, se.maxSecondsLeft || 0)) + ' of inactivity.';
+    var sim = s.sim;
+    if (sim) {
+      var parts = [];
+      parts.push(sim.traffic && sim.traffic.running ? 'Traffic is running' : 'Traffic is idle');
+      if (sim.scenario && sim.scenario.name && sim.scenario.name !== 'normal') parts.push('incident: ' + sim.scenario.name.replace(/_/g, ' '));
+      parts.push(sim.journeysSent + ' requests sent');
+      $('live').textContent = parts.join(' · ');
+    }
+    var h = s.simError ? { cls: 'bad', text: s.simError } : explain(s.telemetry);
+    if (h) { var el = $('health'); el.className = 'msg ' + h.cls; el.textContent = h.text; } else show('health', false);
+  }
+
+  function poll() {
+    api('GET', '/api/status').then(render).catch(function () {});
+  }
+
+  $('connect').onclick = function () {
+    var key = $('key').value.trim();
+    show('connErr', false);
+    if (!key) { $('connErr').textContent = 'Paste your API key first.'; show('connErr', true); return; }
+    var b = $('connect'); b.disabled = true; b.textContent = 'Connecting…';
+    api('POST', '/api/connect', { apiKey: key }).then(function () {
+      $('key').value = ''; poll();
+    }).catch(function (e) {
+      if (e.message !== 'auth') { $('connErr').textContent = e.message; show('connErr', true); }
+    }).then(function () { b.disabled = false; b.textContent = 'Connect'; });
+  };
+  $('key').onkeydown = function (e) { if (e.key === 'Enter') $('connect').click(); };
+
+  $('disconnect').onclick = function () {
+    api('POST', '/api/disconnect').then(function () { toast('Disconnected. Key forgotten.'); poll(); }).catch(function () {});
+  };
+
+  function act(name) {
+    if (busy) return;
+    busy = true;
+    api('POST', '/api/action', { action: name }).then(function () {
+      toast(name === 'stop' ? 'Stopped.' : 'Started. Check Monoscope in a few seconds.'); poll();
+    }).catch(function (e) { if (e.message !== 'auth') toast(e.message); })
+      .then(function () { busy = false; });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('button[data-a]'), function (b) {
+    b.onclick = function () { act(b.dataset.a); };
+  });
+  $('stop').onclick = function () { act('stop'); };
+
+  // boot
+  fetch('/api/info').then(function (r) { return r.json(); }).then(function (i) {
+    if (i.passcodeRequired && !pass) showGate(); else showApp();
+  }).catch(function () { showApp(); });
+})();
+</script>
+</body>
+</html>

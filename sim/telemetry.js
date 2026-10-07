@@ -9,6 +9,7 @@ const { MeterProvider, PeriodicExportingMetricReader } = require('@opentelemetry
 const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
 const { OTLPLogExporter } = require('@opentelemetry/exporter-logs-otlp-grpc');
 const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-grpc');
+const { wrap } = require('../telemetry-stats');
 
 // Parse OTEL_RESOURCE_ATTRIBUTES ("a=b,c=d") so every service carries the same
 // x-api-key and deployment.environment as the main app.
@@ -24,9 +25,9 @@ function envResourceAttributes() {
 // opts: { traceExporter, logExporter, metricExporter, sync, metricIntervalMs } (all optional;
 // the overrides exist so tests can capture telemetry in memory).
 function init(opts = {}) {
-  const traceExporter = opts.traceExporter || new OTLPTraceExporter();
-  const logExporter = opts.logExporter || new OTLPLogExporter();
-  const metricExporter = opts.metricExporter || new OTLPMetricExporter();
+  const traceExporter = wrap(opts.traceExporter || new OTLPTraceExporter(), 'traces');
+  const logExporter = wrap(opts.logExporter || new OTLPLogExporter(), 'logs');
+  const metricExporter = wrap(opts.metricExporter || new OTLPMetricExporter(), 'metrics');
 
   const spanProcessor = opts.sync
     ? new SimpleSpanProcessor(traceExporter)
